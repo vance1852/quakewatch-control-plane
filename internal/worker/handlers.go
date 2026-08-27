@@ -63,16 +63,13 @@ func (h *Handlers) handleCleanup(ctx context.Context, value job.Job) error {
 		return Permanent{Err: fault.Validation("limit", "cleanup limit must be between 1 and 1000")}
 	}
 	now := h.clock.Now()
-	budget := job.NewCleanupBudget(payload.Limit)
-	deletedSessions, err := h.store.DeleteExpiredSessions(ctx, now, budget.Remaining())
-	if err != nil {
+	// Each entity type is capped independently by the payload limit so that a
+	// backlog of expired sessions cannot exhaust the budget before idempotency
+	// records are ever scanned.
+	if _, err := h.store.DeleteExpiredSessions(ctx, now, payload.Limit); err != nil {
 		return err
 	}
-	budget.Consume(deletedSessions)
-	if budget.Remaining() == 0 {
-		return nil
-	}
-	if _, err := h.store.DeleteExpiredIdempotency(ctx, now, budget.Remaining()); err != nil {
+	if _, err := h.store.DeleteExpiredIdempotency(ctx, now, payload.Limit); err != nil {
 		return err
 	}
 	return nil

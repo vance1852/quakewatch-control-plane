@@ -43,25 +43,6 @@ type Job struct {
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
-type CleanupBudget struct {
-	remaining int
-}
-
-func NewCleanupBudget(limit int) *CleanupBudget {
-	return &CleanupBudget{remaining: limit}
-}
-
-func (b *CleanupBudget) Consume(count int64) {
-	b.remaining -= int(count)
-	if b.remaining < 0 {
-		b.remaining = 0
-	}
-}
-
-func (b *CleanupBudget) Remaining() int {
-	return b.remaining
-}
-
 func ValidateNew(value Job) error {
 	switch value.Kind {
 	case KindProcessWaveform, KindDeliverAlert, KindCleanupSession:

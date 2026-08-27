@@ -153,10 +153,9 @@ func (r *Runner) runJob(parent context.Context, value job.Job) {
 		r.logger.Info("worker job completed", "job_id", value.ID, "kind", value.Kind, "duration", now.Sub(started))
 		return
 	}
-	reported := errors.New(err.Error())
-	terminal := value.AttemptCount >= value.MaxAttempts || isPermanent(reported)
+	terminal := value.AttemptCount >= value.MaxAttempts || isPermanent(err)
 	retryAt := job.RetryAt(now, value.AttemptCount)
-	if failErr := r.store.FailJob(parent, value.ID, r.owner, value.Version, terminal, retryAt, truncate(reported.Error(), 1000)); failErr != nil {
+	if failErr := r.store.FailJob(parent, value.ID, r.owner, value.Version, terminal, retryAt, truncate(err.Error(), 1000)); failErr != nil {
 		r.logger.Error("record worker job failure", "job_id", value.ID, "error", failErr, "original_error", err)
 		return
 	}

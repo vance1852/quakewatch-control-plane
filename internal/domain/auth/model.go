@@ -81,6 +81,23 @@ func (c *PrincipalCache) Put(tokenHash string, principal Principal) {
 	c.mu.Unlock()
 }
 
+// Invalidate drops every cached principal for the given user. Existing
+// sessions are not revoked — the next Authenticate call repopulates the
+// cache from the freshly read user record, so role or active-state changes
+// take effect immediately across all of a user's outstanding sessions.
+func (c *PrincipalCache) Invalidate(userID string) {
+	if userID == "" {
+		return
+	}
+	c.mu.Lock()
+	for hash, principal := range c.items {
+		if principal.UserID == userID {
+			delete(c.items, hash)
+		}
+	}
+	c.mu.Unlock()
+}
+
 func ParseRole(value string) (Role, error) {
 	role := Role(strings.ToLower(strings.TrimSpace(value)))
 	switch role {

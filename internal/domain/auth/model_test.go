@@ -129,3 +129,32 @@ func TestSessionValidAt(t *testing.T) {
 }
 
 func pointerTime(value time.Time) *time.Time { return &value }
+
+func TestPrincipalCacheInvalidateByUser(t *testing.T) {
+	t.Parallel()
+	cache := NewPrincipalCache()
+	admin := Principal{UserID: "usr_admin", SessionID: "ses_1", Email: "admin@example.invalid", Role: RoleAdmin}
+	other := Principal{UserID: "usr_ops", SessionID: "ses_2", Email: "ops@example.invalid", Role: RoleOperator}
+	cache.Put("hash_admin", admin)
+	cache.Put("hash_ops", other)
+	cache.Put("hash_admin_second", admin)
+
+	cache.Invalidate("usr_admin")
+
+	if _, ok := cache.Get("hash_admin"); ok {
+		t.Fatalf("admin principal still cached after Invalidate")
+	}
+	if _, ok := cache.Get("hash_admin_second"); ok {
+		t.Fatalf("second admin principal still cached after Invalidate")
+	}
+	if got, ok := cache.Get("hash_ops"); !ok || got.UserID != "usr_ops" {
+		t.Fatalf("unrelated principal dropped by Invalidate: ok=%v %#v", ok, got)
+	}
+
+	// Invalidating an empty user id and an unknown user is a no-op.
+	cache.Invalidate("")
+	cache.Invalidate("nobody")
+	if got, ok := cache.Get("hash_ops"); !ok || got.UserID != "usr_ops" {
+		t.Fatalf("unrelated principal removed by no-op Invalidate: ok=%v %#v", ok, got)
+	}
+}

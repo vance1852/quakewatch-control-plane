@@ -259,3 +259,55 @@ func TestLoginValidationAndUnknownFields(t *testing.T) {
 		t.Fatalf("bad password status = %d, body = %s", response.StatusCode, body)
 	}
 }
+
+// TestRoleDemotionRevokesSessionAuthorizationImmediate verifies that
+// demoting a user takes effect on their existing session without forcing a
+// re-login. The principal cache must never resurrect a stale admin role.
+func TestRoleDemotionRevokesSessionAuthorizationImmediate(t *testing.T) {
+	fixture := newAPIFixture(t)
+	adminPrincipal := auth.Principal{UserID: fixture.admin.ID, Role: auth.RoleAdmin}
+	target, err := fixture.auth.CreateUser(context.Background(), adminPrincipal, authsvc.CreateUserInput{
+		Email: "deputy@example.invalid", DisplayName: "Deputy Admin",
+		Password: "DeputyStrong123", Role: auth.RoleAdmin,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser() error = %v", err)
+	}
+	token := loginToken(t, fixture, "deputy@example.invalid", "DeputyStrong123")
+
+	stationPayload := func(code string) map[string]any {
+		installed := fixture.clock.Now().AddDate(-1, 0, 0)
+		return map[string]any{
+			"code": code, "name": "Demotion Probe " + code, "latitude": 30.2, "longitude": 103.8,
+			"elevation_m": 100, "timezone": "Asia/Shanghai",
+			"sensor_serial": "SN-DEM-001", "sensor_channel": "BHZ", "sensor_sample_rate_hz": 100,
+			"installed_at": installed, "calibrated_at": installed.AddDate(0, 6, 0),
+		}
+	}
+
+	// Warm the principal cache with the admin role by exercising the session.
+	response, body := requestJSON(t, fixture.server.Client(), http.MethodPost, fixture.server.URL+"/v1/stations", token, stationPayload("DEM01"))
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("pre-demotion station create status = %d, body = %s", response.StatusCode, body)
+	}
+
+	// Demote the deputy to analyst using an authorized administrator.
+	if _, err := fixture.auth.UpdateRole(context.Background(), adminPrincipal, target.ID, auth.RoleAnalyst, target.Version); err != nil {
+		t.Fatalf("UpdateRole() error = %v", err)
+	}
+
+	// The same token must now be forbidden from network management without re-login.
+	response, body = requestJSON(t, fixture.server.Client(), http.MethodPost, fixture.server.URL+"/v1/stations", token, stationPayload("DEM02"))
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("post-demotion station create status = %d, body = %s", response.StatusCode, body)
+	}
+	if !bytes.Contains(body, []byte(`"code":"forbidden"`)) {
+		t.Fatalf("post-demotion forbidden body = %s", body)
+	}
+
+	// The session itself remains valid (not revoked), only its authorization shrank.
+	response, _ = requestJSON(t, fixture.server.Client(), http.MethodGet, fixture.server.URL+"/v1/stations?status=active", token, nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("post-demotion read status = %d, body = %s", response.StatusCode, body)
+	}
+}

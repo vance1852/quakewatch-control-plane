@@ -205,11 +205,13 @@ func (s *Service) Authenticate(ctx context.Context, token string) (auth.Principa
 		}
 	}
 	principal := auth.Principal{UserID: user.ID, SessionID: session.ID, Email: user.Email, Role: user.Role}
-	if cached, ok := s.principals.Get(hash); ok {
-		principal.Role = cached.Role
-		return principal, nil
+	// The database is the source of truth for the role and active state, so a
+	// role or active-state change takes effect on the next request without
+	// waiting for re-login. Only cache the principal when it is absent so the
+	// cache never resurrects a stale role after the user is mutated.
+	if _, ok := s.principals.Get(hash); !ok {
+		s.principals.Put(hash, principal)
 	}
-	s.principals.Put(hash, principal)
 	return principal, nil
 }
 
@@ -249,6 +251,11 @@ func (s *Service) UpdateRole(ctx context.Context, principal auth.Principal, user
 			"new_role": parsed,
 		}, now)
 	})
+	if err == nil {
+		// Drop cached principals so the role change is authoritative on the
+		// next request for every outstanding session, not just new logins.
+		s.principals.Invalidate(userID)
+	}
 	return updated, err
 }
 

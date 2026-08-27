@@ -140,20 +140,6 @@ func (s *Service) ScheduleMaintenance(ctx context.Context, principal auth.Princi
 	if err != nil {
 		return station.Station{}, err
 	}
-	overlaps, err := s.store.ListWaveforms(ctx, repository.WaveformFilter{
-		StationID: stationID,
-		From:      &window.From,
-		Until:     &window.Until,
-		Limit:     10,
-	})
-	if err != nil {
-		return station.Station{}, err
-	}
-	for _, batch := range overlaps.Items {
-		if window.ConflictsWith(batch.StartsAt, batch.EndsAt) {
-			return station.Station{}, fmt.Errorf("%w: maintenance overlaps accepted waveform %s", fault.ErrConflict, batch.ID)
-		}
-	}
 	var updated station.Station
 	err = s.tx.WithinTx(ctx, func(store repository.Store) error {
 		current, err := store.GetStation(ctx, stationID)
@@ -165,6 +151,22 @@ func (s *Service) ScheduleMaintenance(ctx context.Context, principal auth.Princi
 		}
 		if err := current.CanTransition(station.StatusMaintenance, 0, time.Time{}, now); err != nil {
 			return err
+		}
+		// Re-check waveform overlap inside the same transaction so a batch
+		// ingested between the check and the status commit is visible here.
+		overlaps, err := store.ListWaveforms(ctx, repository.WaveformFilter{
+			StationID: stationID,
+			From:      &window.From,
+			Until:     &window.Until,
+			Limit:     10,
+		})
+		if err != nil {
+			return err
+		}
+		for _, batch := range overlaps.Items {
+			if window.ConflictsWith(batch.StartsAt, batch.EndsAt) {
+				return fmt.Errorf("%w: maintenance overlaps accepted waveform %s", fault.ErrConflict, batch.ID)
+			}
 		}
 		updated, err = store.UpdateStationState(ctx, stationID, station.StatusMaintenance, &window.From, &window.Until, version, now)
 		if err != nil {

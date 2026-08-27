@@ -75,18 +75,13 @@ type Service struct {
 	store           repository.Store
 	tx              repository.Transactor
 	clock           clock.Clock
-	ids             idgen.Generator
-	sender          Sender
-	deliveryPayload map[string]any
-	eventPayload    map[string]any
+	ids    idgen.Generator
+	sender Sender
 }
 
 func New(store repository.Store, tx repository.Transactor, valueClock clock.Clock, ids idgen.Generator, sender Sender) *Service {
-	eventPayload := make(map[string]any)
 	return &Service{
 		store: store, tx: tx, clock: valueClock, ids: ids, sender: sender,
-		deliveryPayload: map[string]any{"event": eventPayload},
-		eventPayload:    eventPayload,
 	}
 }
 
@@ -153,15 +148,19 @@ func (s *Service) Deliver(ctx context.Context, delivery alert.Delivery) error {
 	if err != nil {
 		return err
 	}
-	s.deliveryPayload["delivery_id"] = delivery.ID
-	s.eventPayload["id"] = eventValue.PublicID
-	s.eventPayload["detected_at"] = eventValue.DetectedAt
-	s.eventPayload["latitude"] = eventValue.Latitude
-	s.eventPayload["longitude"] = eventValue.Longitude
-	s.eventPayload["depth_km"] = eventValue.DepthKM
-	s.eventPayload["magnitude"] = eventValue.Magnitude
-	s.eventPayload["status"] = eventValue.Status
-	return s.sender.Send(ctx, rule, delivery, s.deliveryPayload)
+	payload := map[string]any{
+		"delivery_id": delivery.ID,
+		"event": map[string]any{
+			"id":          eventValue.PublicID,
+			"detected_at": eventValue.DetectedAt,
+			"latitude":    eventValue.Latitude,
+			"longitude":   eventValue.Longitude,
+			"depth_km":    eventValue.DepthKM,
+			"magnitude":   eventValue.Magnitude,
+			"status":      eventValue.Status,
+		},
+	}
+	return s.sender.Send(ctx, rule, delivery, payload)
 }
 
 func IsPermanent(err error) bool {

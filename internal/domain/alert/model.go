@@ -32,6 +32,12 @@ func (c *RuleSnapshotCache) Put(value Rule) {
 	c.mu.Unlock()
 }
 
+func (c *RuleSnapshotCache) Delete(id string) {
+	c.mu.Lock()
+	delete(c.rules, id)
+	c.mu.Unlock()
+}
+
 type Rule struct {
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`

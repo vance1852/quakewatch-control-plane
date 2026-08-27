@@ -131,6 +131,11 @@ func (s *Service) UpdateRule(ctx context.Context, principal auth.Principal, inpu
 			"enabled": updated.Enabled,
 		}, now)
 	})
+	if err == nil {
+		// Invalidate any previously cached snapshot so the next delivery reads
+		// the freshly committed destination instead of a stale value.
+		s.rules.Put(updated)
+	}
 	return updated, err
 }
 

@@ -88,12 +88,11 @@ func NewStationEvidence() *StationEvidence {
 	return &StationEvidence{keys: make(map[string]struct{})}
 }
 
+// Add records the physical station that produced a pick. Evidence is deduplicated
+// strictly by station: phase (P/S) and waveform differences must not let a single
+// station contribute more than once toward the minimum-station threshold.
 func (s *StationEvidence) Add(pick Pick) {
-	key := pick.StationID
-	if pick.Phase == PhaseS {
-		key += "/" + pick.WaveformID
-	}
-	s.keys[key] = struct{}{}
+	s.keys[pick.StationID] = struct{}{}
 }
 
 func (s *StationEvidence) Count() int {

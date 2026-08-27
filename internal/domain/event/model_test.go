@@ -58,6 +58,33 @@ func TestValidateDetection(t *testing.T) {
 	}
 }
 
+func TestStationEvidenceDeduplicatesByStation(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 8, 26, 1, 0, 0, 0, time.UTC)
+	detected := now.Add(-time.Minute)
+	picks := []Pick{
+		{WaveformID: "wav_1", StationID: "sta_1", Phase: PhaseP, PickedAt: detected.Add(5 * time.Second)},
+		{WaveformID: "wav_1", StationID: "sta_1", Phase: PhaseS, PickedAt: detected.Add(20 * time.Second)},
+		{WaveformID: "wav_2", StationID: "sta_1", Phase: PhaseS, PickedAt: detected.Add(25 * time.Second)},
+		{WaveformID: "wav_3", StationID: "sta_2", Phase: PhaseP, PickedAt: detected.Add(6 * time.Second)},
+	}
+	evidence := NewStationEvidence()
+	for _, pick := range picks {
+		evidence.Add(pick)
+	}
+	if evidence.Count() != 2 {
+		t.Fatalf("station count = %d, want 2 (P/S and waveform differences must not multiply a single station)", evidence.Count())
+	}
+
+	input := DetectionInput{
+		PublicID: "EQ-2026-0001", DetectedAt: detected, Latitude: 31.2,
+		Longitude: 103.4, DepthKM: 12.5, Magnitude: 4.2, Picks: picks,
+	}
+	if _, err := ValidateDetection(input, now); !errors.Is(err, fault.ErrValidation) {
+		t.Fatalf("ValidateDetection() error = %v, want validation for two physical stations", err)
+	}
+}
+
 func TestCandidateClaim(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 8, 26, 1, 0, 0, 0, time.UTC)

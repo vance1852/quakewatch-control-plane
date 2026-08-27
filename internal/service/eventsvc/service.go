@@ -54,24 +54,24 @@ func (s *Service) Detect(ctx context.Context, principal auth.Principal, input ev
 		UpdatedAt:  now,
 	}
 	picks := make([]event.Pick, len(validated.Picks))
-	for _, inputPick := range validated.Picks {
-		if err := ctx.Err(); err != nil {
-			return Detail{}, err
-		}
-		batch, err := s.store.GetWaveform(ctx, inputPick.WaveformID)
-		if err != nil {
-			return Detail{}, err
-		}
-		if err := event.ValidatePickSource(inputPick, batch); err != nil {
-			return Detail{}, err
-		}
-	}
 	err = s.tx.WithinTx(ctx, func(store repository.Store) error {
 		if err := store.CreateEvent(ctx, candidate); err != nil {
 			return err
 		}
 		for index, inputPick := range validated.Picks {
 			if err := ctx.Err(); err != nil {
+				return err
+			}
+			// Re-read each waveform inside the transaction so the status check
+			// shares the same snapshot as the event/pick writes. A worker may
+			// flip a waveform to rejected between the pre-check and commit;
+			// validating here ensures an event can only reference a waveform
+			// that is still processed at commit time.
+			batch, err := store.GetWaveform(ctx, inputPick.WaveformID)
+			if err != nil {
+				return err
+			}
+			if err := event.ValidatePickSource(inputPick, batch); err != nil {
 				return err
 			}
 			inputPick.ID = s.ids.New("pik")

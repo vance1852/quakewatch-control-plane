@@ -2,8 +2,10 @@ package job
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vance1852/quakewatch-control-plane/internal/domain/fault"
 )
@@ -69,6 +71,32 @@ func TestRetryAt(t *testing.T) {
 	} {
 		if got := RetryAt(now, attempt); !got.Equal(now.Add(delay)) {
 			t.Errorf("RetryAt(%d) = %v, want %v", attempt, got, now.Add(delay))
+		}
+	}
+}
+
+func TestErrorSummary(t *testing.T) {
+	t.Parallel()
+	// Chinese failure reasons are multi-byte UTF-8; a naive byte cut would split a rune
+	// and make last_error unencodable for the admin API.
+	long := strings.Repeat("波形处理失败原因详情", 200) // each rune is 3 bytes
+	for _, tc := range []struct {
+		name  string
+		value string
+		limit int
+	}{
+		{"ascii under limit", "short error", 100},
+		{"ascii over limit", strings.Repeat("a", 50), 10},
+		{"multibyte over limit", long, 100},
+		{"limit zero", long, 0},
+		{"limit negative", long, -1},
+	} {
+		got := ErrorSummary(tc.value, tc.limit)
+		if !utf8.ValidString(got) {
+			t.Errorf("%s: ErrorSummary produced invalid UTF-8: %q", tc.name, got)
+		}
+		if tc.limit > 0 && len(got) > tc.limit {
+			t.Errorf("%s: length %d exceeds limit %d", tc.name, len(got), tc.limit)
 		}
 	}
 }

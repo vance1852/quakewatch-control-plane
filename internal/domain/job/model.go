@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/vance1852/quakewatch-control-plane/internal/domain/fault"
 )
@@ -98,8 +99,15 @@ func RetryAt(now time.Time, attempt int) time.Time {
 }
 
 func ErrorSummary(value string, limit int) string {
-	if len(value) <= limit {
+	if limit <= 0 || len(value) <= limit {
 		return value
 	}
-	return value[:limit]
+	// Truncate by bytes but never split a multi-byte UTF-8 rune: back up to the
+	// last full rune boundary so the result stays valid UTF-8 (a half-cut byte
+	// sequence would make last_error unencodable for the admin API).
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut]
 }

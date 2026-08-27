@@ -238,6 +238,69 @@ func TestRoleAuthorizationRejectsAnalystNetworkMutation(t *testing.T) {
 	}
 }
 
+func TestRegisterStationConflictLeavesNoPartialStationAndAllowsRetry(t *testing.T) {
+	fixture := newAPIFixture(t)
+	token := loginToken(t, fixture, "admin@example.invalid", "StrongAdmin123")
+	registeredAt := fixture.clock.Now().AddDate(0, -1, 0)
+	stationBody := func(code, serial string) map[string]any {
+		return map[string]any{
+			"code":                  code,
+			"name":                  "Conflict Ridge",
+			"latitude":              30.2,
+			"longitude":             103.8,
+			"elevation_m":           880,
+			"timezone":              "Asia/Shanghai",
+			"sensor_serial":         serial,
+			"sensor_channel":        "BHZ",
+			"sensor_sample_rate_hz": 100,
+			"installed_at":          registeredAt.AddDate(-1, 0, 0),
+			"calibrated_at":         registeredAt,
+		}
+	}
+
+	// Register the first station, which claims serial SN-SC-007.
+	response, body := requestJSON(t, fixture.server.Client(), http.MethodPost, fixture.server.URL+"/v1/stations", token, stationBody("sc07", "SN-SC-007"))
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("first register status = %d, body = %s", response.StatusCode, body)
+	}
+
+	// A second station reusing the same serial must conflict without leaving
+	// its own (distinct) station code behind.
+	response, body = requestJSON(t, fixture.server.Client(), http.MethodPost, fixture.server.URL+"/v1/stations", token, stationBody("sc08", "SN-SC-007"))
+	if response.StatusCode != http.StatusConflict {
+		t.Fatalf("conflict register status = %d, body = %s", response.StatusCode, body)
+	}
+	response, body = requestJSON(t, fixture.server.Client(), http.MethodGet, fixture.server.URL+"/v1/stations?search=Conflict", token, nil)
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", response.StatusCode, body)
+	}
+	if bytes.Contains(body, []byte(`"code":"SC08"`)) {
+		t.Fatalf("partial station persisted after conflict: %s", body)
+	}
+
+	// Retry with a fresh serial and the same conflicting station code; it must
+	// succeed in one shot.
+	response, body = requestJSON(t, fixture.server.Client(), http.MethodPost, fixture.server.URL+"/v1/stations", token, stationBody("sc08", "SN-SC-008"))
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("retry register status = %d, body = %s", response.StatusCode, body)
+	}
+	var detail struct {
+		Station struct {
+			Code    string `json:"code"`
+			Version int64  `json:"version"`
+		} `json:"station"`
+		Sensors []struct {
+			SerialNumber string `json:"serial_number"`
+		} `json:"sensors"`
+	}
+	if err := json.Unmarshal(body, &detail); err != nil {
+		t.Fatalf("decode retry station: %v", err)
+	}
+	if detail.Station.Code != "SC08" || len(detail.Sensors) != 1 || detail.Sensors[0].SerialNumber != "SN-SC-008" {
+		t.Fatalf("retry detail = %#v", detail)
+	}
+}
+
 func TestLoginValidationAndUnknownFields(t *testing.T) {
 	fixture := newAPIFixture(t)
 	response, body := requestJSON(t, fixture.server.Client(), http.MethodPost, fixture.server.URL+"/v1/auth/login", "", map[string]any{

@@ -63,10 +63,14 @@ func (s *Service) Register(ctx context.Context, principal auth.Principal, input 
 		Version:      1,
 		CreatedAt:    now,
 	}
-	if err := s.store.ReserveStationIdentity(ctx, stationValue); err != nil {
-		return StationDetail{}, fault.Wrap("reserve station identity", err)
-	}
 	err = s.tx.WithinTx(ctx, func(store repository.Store) error {
+		// Reserve the station identity inside the same transaction as the sensor
+		// creation. If the sensor serial conflicts with an existing station, the
+		// whole transaction rolls back together, leaving no half-finished
+		// station that would block a retry with a valid serial number.
+		if err := store.ReserveStationIdentity(ctx, stationValue); err != nil {
+			return err
+		}
 		if err := store.CreateSensor(ctx, sensorValue); err != nil {
 			return err
 		}

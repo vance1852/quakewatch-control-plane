@@ -25,10 +25,12 @@ type MetadataBuffer struct {
 	data []byte
 }
 
-// Borrow copies raw metadata into the reusable decode buffer.
+// Borrow copies raw metadata into a fresh slice so each scanned row keeps its
+// own bytes even as the buffer is reused across rows in a single query.
 func (b *MetadataBuffer) Borrow(raw string) json.RawMessage {
-	b.data = append(b.data[:0], raw...)
-	return b.data
+	clone := make(json.RawMessage, len(raw))
+	copy(clone, raw)
+	return clone
 }
 
 type Query struct {

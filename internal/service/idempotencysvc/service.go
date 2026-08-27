@@ -90,17 +90,19 @@ func (s *Service) Execute(ctx context.Context, principal auth.Principal, method,
 		_ = s.store.DeleteIdempotency(cleanupContext(ctx), record.ID)
 		return Result{}, fmt.Errorf("marshal idempotent response: %w", err)
 	}
-	if err := s.store.CompleteIdempotency(ctx, record.ID, code, string(body)); err != nil {
+	if err := s.store.CompleteIdempotency(cleanupContext(ctx), record.ID, code, string(body)); err != nil {
+		_ = s.store.DeleteIdempotency(cleanupContext(ctx), record.ID)
 		return Result{}, err
 	}
 	result = Result{Code: code, Body: body}
 	return result, nil
 }
 
+// cleanupContext returns a context that remains valid after the client request
+// is canceled, so that placeholder cleanup and completion writes survive the
+// request lifecycle. Failing to detach cleanup from the request context leaves
+// the in-progress placeholder in place and permanently poisons the retry key.
 func cleanupContext(ctx context.Context) context.Context {
-	if ctx.Err() != nil {
-		return ctx
-	}
 	return context.WithoutCancel(ctx)
 }
 
